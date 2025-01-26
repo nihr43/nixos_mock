@@ -2,9 +2,21 @@ import uuid
 import time
 import ipaddress
 import json
+import os
 
 from concurrent.futures import ThreadPoolExecutor
 import subprocess
+
+base_dir = os.path.dirname(os.path.abspath(__file__))
+
+
+class Cluster:
+    def __init__(self, key, count):
+        def create_node(_):
+            return Node(key, "nixos/24.11")
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            self.nodes = list(pool.map(create_node, range(count)))  # noqa
 
 
 def cleanup(key):
@@ -48,9 +60,9 @@ class Node:
 
     def install_ssh(self):
         print(f"configuring {self.name}")
-        cmd = f"incus file push src/initial.nix {self.name}/etc/nixos/configuration.nix"
+        cmd = f"incus file push {base_dir}/src/initial.nix {self.name}/etc/nixos/configuration.nix"
         subprocess.run(cmd, shell=True, text=True, check=True)
-        cmd = f"incus file push src/ssh-keys.nix {self.name}/etc/nixos/ssh-keys.nix"
+        cmd = f"incus file push {base_dir}/src/ssh-keys.nix {self.name}/etc/nixos/ssh-keys.nix"
         subprocess.run(cmd, shell=True, text=True, check=True)
         cmd = f"incus exec {self.name} -- su -c 'nixos-rebuild switch'"
         subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)
@@ -122,13 +134,7 @@ def main():
     key = "nixos-mock"
     count = 3
 
-    cleanup(key)
-
-    def create_node(_):
-        return Node(key, "nixos/24.11")
-
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        nodes = list(pool.map(create_node, range(count)))  # noqa
+    c = Cluster(key, count)  # noqa
 
 
 if __name__ == "__main__":
