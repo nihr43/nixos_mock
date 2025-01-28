@@ -1,6 +1,5 @@
 import uuid
 import time
-import ipaddress
 import json
 import os
 
@@ -55,7 +54,14 @@ class Node:
         )
         subprocess.run(f"incus start {self.name}", shell=True, text=True, check=True)
         self.wait_until_ready()
+        subprocess.run(
+            f"incus exec {self.name} -- bash -c \"echo '{{}}' > /etc/nixos/hardware-configuration.nix\"",
+            shell=True,
+            text=True,
+            check=True,
+        )
         self.install_ssh()
+        self.get_valid_ipv4("enp5s0")
         print(f"{self.name} created")
 
     def install_ssh(self):
@@ -92,27 +98,27 @@ class Node:
 
     def get_valid_ipv4(self, interface):
         """
-        ipv4 addresses can take a moment to be assigned on boot, so
-        inst.state().network['eth0']['addresses'][0]['address'] is not reliable.
-        This waits until a valid address is assigned and returns it.
+        ipv4 addresses can take a moment to be assigned on boot,
+        and proper interface names take a moment to be detected.
         """
         print("waiting for valid ipv4 address on", self.name)
         i = 0
         while i < 30:
             i += 1
             time.sleep(1)
-            candidate_ip = self.inst.state().network[interface]["addresses"][0][
-                "address"
-            ]
-            try:
-                ipaddress.IPv4Address(candidate_ip)
-                print("found {} at {}".format(self.name, candidate_ip))
-                return candidate_ip
-            except ipaddress.AddressValueError:
-                continue
-            except ConnectionResetError:
-                continue
-            return
+            r = subprocess.run(
+                f"incus ls {self.name} -f json",
+                shell=True,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            j = json.loads(r.stdout)
+            for a in j[0]["state"]["network"][interface]["addresses"]:
+                if a["family"] == "inet":
+                    self.ip = a["address"]
+                    print(f"found {self.name} at {self.ip}")
+                    return
 
         raise TimeoutError("timed out waiting")
 
